@@ -17,7 +17,23 @@ function ISFRenderer(gl) {
   this.startTime = Date.now();
   this.lastRenderTime = Date.now();
   this.frameIndex = 0;
+  // [anim8 fork] Optional per-instance render-size override. null = use the
+  // destination canvas's own width/height (upstream behaviour). When set to
+  // {width,height}, draw() renders the final pass + RENDERSIZE + viewport +
+  // PASSES evaluateSize at this size instead of destination.width/height —
+  // so a host can render a shader at a reduced (or enlarged) resolution into
+  // a sub-region of a larger shared canvas without resizing that canvas.
+  // Enables Anim8 per-card renderScale (subsample-for-perf / supersample-for-
+  // zoom) against the single shared SRA OffscreenCanvas.
+  this._renderSize = null;
 }
+
+// [anim8 fork] Set (or clear) the per-instance render-size override.
+// w,h <= 0 (or omitted) clears the override → revert to destination dims.
+ISFRenderer.prototype.setRenderSize = function setRenderSize(w, h) {
+  w = w | 0; h = h | 0;
+  this._renderSize = (w > 0 && h > 0) ? { width: w, height: h } : null;
+};
 
 ISFRenderer.prototype.loadSource = function loadSource(fragmentISF, vertexISFOpt) {
   const parser = new ISFParser();
@@ -129,7 +145,10 @@ ISFRenderer.prototype.generatePersistentBuffers = function generatePersistentBuf
 ISFRenderer.prototype.paintToScreen = function paintToScreen(destination, target) {
   this.paintProgram.use();
   this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-  this.gl.viewport(0, 0, destination.width, destination.height);
+  // [anim8 fork] honor the render-size override so the multipass final paint
+  // lands in the same sub-region the host will read back / blit.
+  const ps = this._renderSize || destination;
+  this.gl.viewport(0, 0, ps.width, ps.height);
   const loc = this.paintProgram.getUniformLocation('tex');
   target.readTexture().bind(loc);
   this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
@@ -317,13 +336,19 @@ ISFRenderer.prototype.draw = function draw(destination) {
   }
   let lastTarget = null;
   const passes = this.model.passes;
+  // [anim8 fork] sizeRef drives every render dimension: PASSES intermediate
+  // sizes (via evaluateSize $WIDTH/$HEIGHT) + the final-pass viewport +
+  // RENDERSIZE. _renderSize override (if set) substitutes for the
+  // destination canvas's own dims so the shader rasterizes at the host's
+  // requested resolution into a sub-region of the (unchanged) destination.
+  const sizeRef = this._renderSize || destination;
   for (let i = 0; i < passes.length; ++i) {
     const pass = passes[i];
     this.setValue('PASSINDEX', i);
     const buffer = pass.buffer;
     if (pass.target) {
-      const w = this.evaluateSize(destination, pass.width);
-      const h = this.evaluateSize(destination, pass.height);
+      const w = this.evaluateSize(sizeRef, pass.width);
+      const h = this.evaluateSize(sizeRef, pass.height);
       buffer.setSize(w, h);
       const writeTexture = buffer.writeTexture();
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, buffer.fbo);
@@ -337,8 +362,10 @@ ISFRenderer.prototype.draw = function draw(destination) {
       lastTarget = buffer;
       this.gl.viewport(0, 0, w, h);
     } else {
-      const renderWidth = destination.width;
-      const renderHeight = destination.height;
+      // [anim8 fork] final pass — render at the override size (sub-region of
+      // destination) when _renderSize is set, else destination's own dims.
+      const renderWidth = sizeRef.width;
+      const renderHeight = sizeRef.height;
       this.gl.bindTexture(this.gl.TEXTURE_2D, null);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
       this.setValue('RENDERSIZE', [renderWidth, renderHeight]);
