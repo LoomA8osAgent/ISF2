@@ -58,3 +58,17 @@ loads as `lib/isf-renderer.min.js`.
 - Audio input channels (FFT / waveform) as first-class
 - HDR / float render targets
 - External `TIME` setter (host-driven clock instead of internal `Date.now`)
+
+## Long-form plan
+
+The full architecture + phased roadmap for evolving this fork into a universal
+shader-ingestion + control-extraction runtime (format detection → dialect
+transpile → format adapters for Shadertoy / GLSL-Sandbox / twigl / p5 / three /
+CodePen-GLSL / KodeLife / Bonzomatic → unified control analyzer → ISF-INPUTS
+emission → universal augment) lives in the Anim8 spec repo:
+
+`anim8-spec/specs/shader-runtime.md`
+
+The roadmap bullets above (ES3, preprocessing parity, audio channels, HDR,
+TIME-setter) are this fork's slice of that plan; `shader-runtime.md` §11
+sequences them as fork Updates 2..N alongside the Anim8-side adapter work.
