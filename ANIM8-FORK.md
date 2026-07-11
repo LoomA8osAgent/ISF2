@@ -82,6 +82,19 @@ FPS 75→38 with 6 taps). Host wires it behind capability detection
 (`typeof renderer.setValueGLTexture === 'function'`) so the same host code runs
 against the pre-`setValueGLTexture` bundle (canvas fallback) and the new one.
 
+### Update 3 — ISFLineMapper null guard (compile-error handler no longer crashes)
+
+`src/ISFLineMapper.js`. The GLSL error-line mapper did
+`/ERROR: (\d+):(\d+): (.*)/g.exec(error.message)[2]` unguarded — any error
+whose message doesn't match the GLSL "ERROR: n:m:" format (runtime TypeError,
+parser throw, driver-specific format, non-string message) made `.exec()`
+return `null` → "Cannot read properties of null (reading '2')" thrown INSIDE
+`ISFRenderer.sourceChanged`'s catch, masking the true error corpus-wide
+(found by the Anim8 G2.2 corpus regression harness). Fix: coerce a missing/
+non-string message to `''`; when the regex doesn't match return `-1` (no
+mappable line) — the original error object on `renderer.error` stays intact.
+`getMainLine` scans now run only after a successful match.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →
