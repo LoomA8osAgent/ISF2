@@ -98,7 +98,53 @@ ISFRenderer.prototype.setValue = function setValue(name, value) {
   uniform.value = value;
   if (uniform.type === 't') {
     uniform.textureLoaded = false;
+    // [anim8 fork] a plain setValue supersedes any external-GL-texture bind:
+    // clear it so pushTexture takes the standard texImage2D/canvas path.
+    uniform.externalTexture = null;
   }
+  this.pushUniform(uniform);
+};
+
+// [anim8 fork] Bind a caller-owned WebGLTexture directly to an image input,
+// bypassing texImage2D / CPU upload entirely. This is the GPU-pure image path:
+// the host renders content into its own FBO (e.g. Anim8's SRA cross-card
+// inputImage) and feeds that FBO's colour texture straight in — zero
+// GPU→CPU→GPU readback round-trip.
+//
+//   name      — an ISF image/sampler2D input NAME (e.g. 'inputImage').
+//   glTexture — a WebGLTexture owned by the CALLER. The renderer NEVER
+//               deletes, resizes, or texImage2D's into it — it only binds it to
+//               a texture unit + points the sampler at it each push.
+//   width/height — the source texture dimensions, used for the input's
+//               companion `_<name>_imgSize` uniform (drives IMG_PIXEL /
+//               IMG_NORM_PIXEL / IMG_THIS_PIXEL sampling). The texture itself
+//               must be created in THIS renderer's GL context.
+//
+// Orientation: the texture is bound raw (no UNPACK_FLIP_Y, no texImage2D), so
+// it keeps GL bottom-left origin and `_<name>_flip` is set false — a straight
+// GL-to-GL feed. Call once per frame per input before draw(); mirrors setValue.
+ISFRenderer.prototype.setValueGLTexture = function setValueGLTexture(name, glTexture, width, height) {
+  this.program.use();
+  const uniform = this.uniforms[name];
+  if (!uniform) {
+    console.error(`No uniform named ${name}`);
+    return;
+  }
+  if (uniform.type !== 't') {
+    console.error(`setValueGLTexture called on non-image uniform ${name}`);
+    return;
+  }
+  if (glTexture === null || glTexture === undefined) {
+    // Clear the external binding → fall back to the standard value/texture path.
+    uniform.externalTexture = null;
+    uniform.value = { complete: false, readyState: 0 };
+    uniform.textureLoaded = false;
+    return;
+  }
+  uniform.externalTexture = glTexture;
+  uniform.externalSize = [(width | 0) || 1, (height | 0) || 1];
+  uniform.value = glTexture; // truthy so pushUniform proceeds to pushTexture
+  uniform.textureLoaded = false; // re-push imgSize companions on (re)bind
   this.pushUniform(uniform);
 };
 
@@ -163,6 +209,30 @@ ISFRenderer.prototype.pushTextures = function pushTextures() {
 };
 
 ISFRenderer.prototype.pushTexture = function pushTexture(uniform) {
+  // [anim8 fork] External caller-owned WebGLTexture path (setValueGLTexture).
+  // Bind the host's texture directly to a texture unit — NO texImage2D, NO
+  // upload, NO ownership (never deleted/resized here). Structurally identical
+  // to the ISFTexture.bind path below so texture-unit assignment + draw()
+  // ordering match the canvas path exactly; only the pixel source differs.
+  if (uniform.externalTexture) {
+    const loc = this.program.getUniformLocation(uniform.name);
+    if (loc === null || loc === -1) {
+      return;
+    }
+    const newTexUnit = this.contextState.newTextureIndex();
+    this.gl.activeTexture(this.gl.TEXTURE0 + newTexUnit);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, uniform.externalTexture);
+    this.gl.uniform1i(loc, newTexUnit);
+    if (!uniform.textureLoaded) {
+      uniform.textureLoaded = true;
+      const sz = uniform.externalSize || [1, 1];
+      this.setValue(`_${uniform.name}_imgSize`, [sz[0], sz[1]]);
+      this.setValue(`_${uniform.name}_imgRect`, [0, 0, 1, 1]);
+      this.setValue(`_${uniform.name}_flip`, false);
+    }
+    return;
+  }
+
   if (!uniform.value) {
     return;
   }

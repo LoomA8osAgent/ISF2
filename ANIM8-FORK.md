@@ -44,6 +44,44 @@ renderer.setRenderSize(sw, sh);   // render at sw×sh into destination's lower-l
 renderer.setRenderSize(0, 0);     // (or any <=0) clear → revert to destination dims
 ```
 
+### Update 2 — `ISFRenderer.setValueGLTexture(name, glTexture, width, height)` (zero-copy GPU image input)
+
+`src/ISFRenderer.js`. Binds a **caller-owned `WebGLTexture`** directly to an
+ISF image/sampler2D input, bypassing `texImage2D` / CPU upload entirely.
+
+API:
+```js
+renderer.setValueGLTexture('inputImage', fboTex, w, h); // bind host FBO texture
+renderer.setValueGLTexture('inputImage', null);          // clear → back to canvas path
+```
+
+Semantics:
+- The renderer **never** deletes, resizes, or `texImage2D`s into `glTexture` —
+  the host owns it; the renderer only binds it to a texture unit + points the
+  sampler uniform at it each push (new `uniform.externalTexture` branch in
+  `pushTexture`, structurally identical to the `ISFTexture.bind` canvas path so
+  texture-unit assignment + `draw()` ordering are unchanged).
+- `width`/`height` drive the input's `_<name>_imgSize` companion uniform
+  (IMG_PIXEL / IMG_NORM_PIXEL / IMG_THIS_PIXEL sampling); `_<name>_imgRect` =
+  `[0,0,1,1]`, `_<name>_flip` = `false`.
+- The texture is bound **raw** (no `UNPACK_FLIP_Y_WEBGL`, no upload) → it keeps
+  GL bottom-left origin. Feed a GL-oriented texture (e.g. an FBO colour
+  attachment) and the sampled orientation matches the canvas upload path.
+- A subsequent `setValue(name, canvas)` on the same input clears the external
+  binding and reverts to the standard texImage2D path.
+- The `glTexture` must belong to the same GL context passed to `new ISFRenderer(gl)`.
+
+**Why:** Anim8's SRA pipeline is one WebGL2 context; every card renders to an
+FBO. The Mode-3 intra-Stack / Mode-4 cross-card `inputImage` feed was the last
+GPU→CPU→GPU readback in the whole compositor — a card's prior-chain FBO was
+`readPixels`'d into a 2D canvas, then re-uploaded via `setValue(canvas)` because
+upstream `setValue` only accepts `HTMLCanvasElement`/`Image`/`Video`.
+`setValueGLTexture` lets the host blit FBO→FBO (GPU-only) and feed the texture
+handle straight in, killing the readback stall (project-memory: readback crashed
+FPS 75→38 with 6 taps). Host wires it behind capability detection
+(`typeof renderer.setValueGLTexture === 'function'`) so the same host code runs
+against the pre-`setValueGLTexture` bundle (canvas fallback) and the new one.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →
