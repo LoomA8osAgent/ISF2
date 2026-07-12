@@ -95,6 +95,29 @@ non-string message to `''`; when the regex doesn't match return `-1` (no
 mappable line) — the original error object on `renderer.error` stays intact.
 `getMainLine` scans now run only after a successful match.
 
+### Update 4 — `GLSLNormalize` (fork-native ES1→ES3 normalize module, G2.3 Stage 1)
+
+`src/GLSLNormalize.js` (+ exported from `src/main.js` →
+`interactiveShaderFormat.GLSLNormalize`). The complete 14-transform ES 1.00 →
+ES 3.00 normalize inventory that previously lived ONLY as Anim8's app-side
+`WebGL2RenderingContext.prototype.shaderSource` monkeypatch
+(`app/js/formats/isf-es300.js`), ported VERBATIM as pure string→string
+functions (no GL / DOM / window):
+
+```js
+GLSLNormalize.normalizeGLSL(src, { target: 'es100'|'es300', stage: 'frag'|'vert' })
+GLSLNormalize.upgradeES300(fragSrc, vertSrc)   // → { frag, vert }
+GLSLNormalize.isLegacyISFSource(src)           // gate predicate
+```
+
+`target:'es100'` (default) is a strict NO-OP passthrough — the parser still
+emits ES 1.00 and the app monkeypatch stays live. `target:'es300'` produces
+byte-identical output to the monkeypatch for the same input (verified over 27
+representative corpus files, frag + vert). The monkeypatch INSTALLER stays
+app-side (environment-bound); Stage 2 flips the parser skeleton to ES3 and
+consumes this module natively. Order-dependency notes in the module header.
+
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →
