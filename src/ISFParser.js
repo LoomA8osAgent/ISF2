@@ -1,4 +1,5 @@
 import MetadataExtractor from './MetadataExtractor';
+import GLSLNormalize from './GLSLNormalize';
 /*
 
   Uniforms you will need to set, in addition to any inputs specified are
@@ -90,6 +91,19 @@ ISFParser.prototype.generateShaders = function generateShaders() {
 
   this.fragmentShader = this.buildFragmentShader();
   this.vertexShader = this.buildVertexShader();
+
+  // G2.3 Stage 2 — parser-native ES 1.00 -> ES 3.00 emission. The full es300
+  // transform inventory (GLSLNormalize, fork Update 4) runs on the ASSEMBLED
+  // whole shader here, producing output byte-identical to the retired app-side
+  // WebGL2RenderingContext.shaderSource monkeypatch (Anim8 isf-es300.js) — the
+  // upgrade previously happened at shaderSource() time on the same assembled
+  // text, so this is a pure relocation, not a new transform (fidelity-proven
+  // 28/28 vs isfUpgradeES300). `ISFParser.emitsES300` (static, below) is the
+  // capability flag the Anim8 app reads to skip installing that monkeypatch.
+  if (ISFParser.emitsES300) {
+    this.fragmentShader = GLSLNormalize.normalizeGLSL(this.fragmentShader, { target: 'es300', stage: 'frag' });
+    this.vertexShader = GLSLNormalize.normalizeGLSL(this.vertexShader, { target: 'es300', stage: 'vert' });
+  }
 };
 
 ISFParser.prototype.addUniform = function addUniform(input) {
@@ -271,5 +285,12 @@ gl_Position = vec4( isf_position, 0.0, 1.0 );
   [[functions]]
 }
 `;
+
+// G2.3 Stage 2 — capability flag. The parser now emits GLSL ES 3.00 natively
+// (via GLSLNormalize on the assembled shader in generateShaders). The Anim8 app
+// + regression harness read `window.ISFParser.emitsES300` to skip the legacy
+// isf-es300.js shaderSource monkeypatch (retained as the capability fallback for
+// a pre-flip vendored bundle). Mirror of the G2.1 supportsGLTextureInput pattern.
+ISFParser.emitsES300 = true;
 
 export default ISFParser;

@@ -117,6 +117,28 @@ representative corpus files, frag + vert). The monkeypatch INSTALLER stays
 app-side (environment-bound); Stage 2 flips the parser skeleton to ES3 and
 consumes this module natively. Order-dependency notes in the module header.
 
+### Update 5 — parser emits GLSL ES 3.00 natively (G2.3 Stage 2, the flip)
+
+`src/ISFParser.js`. `generateShaders()` now runs `GLSLNormalize.normalizeGLSL`
+(Update 4) on the ASSEMBLED whole shader (frag + vert) after `buildFragment/
+buildVertexShader`, gated on the new static `ISFParser.emitsES300 = true`. This
+is a pure RELOCATION of the ES 1.00 → ES 3.00 upgrade the Anim8 app previously
+did in its `WebGL2RenderingContext.shaderSource` monkeypatch (`isf-es300.js`):
+the monkeypatch intercepted the same assembled text at compile time and called
+the same transform (`isfUpgradeES300`), so the emitted GLSL is byte-identical —
+the ES1 skeleton strings are left untouched because `normalizeGLSL` strips and
+re-emits the `#version`/`precision`/prelude/out-decl preamble itself (the
+skeleton content below the preamble is normalized in place). No skeleton edit,
+no new transform, no divergence risk.
+
+`ISFParser.emitsES300` (exposed as `window.ISFParser.emitsES300`) is the
+capability flag the Anim8 app + regression harness read to SKIP installing the
+`isf-es300.js` monkeypatch (mirror of the Update-2 `supportsGLTextureInput`
+capability pattern). A pre-flip vendored bundle lacks the flag → the app
+transparently falls back to the monkeypatch. Verified: full-corpus regression
+harness compare, ES3-native output vs the frozen `ES1 forknorm bundle@6897338`
+baseline — see Anim8 GOAL.md G2.3 ledger.
+
 
 ## Build
 
