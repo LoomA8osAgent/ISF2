@@ -140,6 +140,109 @@ harness compare, ES3-native output vs the frozen `ES1 forknorm bundle@6897338`
 baseline — see Anim8 GOAL.md G2.3 ledger.
 
 
+### Update 6 — `ISF2` extension schema: parse + validate (G2.3 Stage 3)
+
+`src/ISF2.js` (+ exported from `src/main.js` → `interactiveShaderFormat.ISF2`).
+The reference implementation of the ISF2 extension schema — the format's
+published, backward-degradable superset of ISF 2.0 (standard:
+`anim8-spec/specs/isf2-standard.md`).
+
+```js
+ISF2.parse(fsText, { vertexShader })  // → model { meta, inputs, passes, body, raw,
+                                      //           isfVersion, type, point2D, a8, warnings }
+ISF2.validate(model)                  // → { ok, errors[], warnings[], skipped[] }  (§9.3 V1-V9)
+ISF2.normalizeGLSL(src, opts)         // → GLSLNormalize delegate (§7.1)
+```
+
+Covers: the top-level `A8VSN` / `A8_ANIMATE` / `A8_CAMERA` / `A8_PROVENANCE`
+blocks, the four RESERVED names (`A8_MODE` / `A8_LAYERS` / `A8_OPS` /
+`A8_MATERIAL`), unknown-`A8_*` forward compatibility, the per-input extension
+fields incl. the gate grammar (`{ param, eq|not|anyOf }` or an AND-array) and
+the neutral `_op*` names with `_glyOp*` accepted as grandfathered synonyms, the
+normative `point2D` pixel-vs-raw rule, and the ISF 1.0 / filter-type
+classifications. Fatal structural failures throw a typed `ISF2Error`
+(`.code`, `.line`, `.position`); everything else is a model warning or a
+validate error, so "not an ISF file" is always distinguishable from "an ISF
+file with problems". V9 (does the body compile) is always reported in
+`skipped[]` — this module has no GL context and the standard forbids reporting
+it as passed.
+
+`ISF2.emit` is deliberately NOT in this update: the emitter and its
+byte-stability contract (standard §9.2 E2/E3) are the next stage, gated on a
+byte-identical re-emit of the baked corpus. `parse` already retains everything
+it needs (raw source, raw metadata string, untouched metadata object, body
+offset), so that stage is additive here. (Landed in Update 7.)
+
+**Zero effect on the vanilla path.** `ISFParser.js` is untouched; this is a
+separate, additive layer. Proven by a full-corpus parser differential — every
+`.fs` in the A8os ISF corpus (1,928 files) parsed with the pre-change and
+post-change bundles, comparing emitted `fragmentShader` / `vertexShader` text,
+`uniformDefs`, extracted `inputs` / `passes` / `imports`, filter `type`,
+`isfVersion`, validity and error message: **1,928 identical, 0 different.**
+Byte-identical emitted GLSL plus a byte-identical control surface is a stronger
+guarantee than a pixel-hash compare for a metadata-only change — there is no
+tolerance window to hide in. Over the same corpus the ISF2 layer parsed all
+1,872 files the parser accepts (the 56 it rejects are the same files the parser
+rejects), with zero classification disagreements.
+
+Tests: `tests/isf2-test.js` (107 assertions, tape) — back-compat legs against
+the classic fixtures, the A8_* surface, each validation rule V1-V9, the error
+surface, and the shared camera-canon gate shapes verbatim.
+
+### Update 7 — `ISF2.emit`: byte-stable emission (G2.3 Stage 4)
+
+`src/ISF2.js` (same module, additive). The emitter half of the reference
+implementation, completing the §11 public contract:
+
+```js
+ISF2.emit(model, { canonical, indent })        // → fsText  (§9.2 E1-E3, §9.2.1)
+ISF2.setExtension(model, 'A8_CAMERA', v)       // the sanctioned extension write
+ISF2.appendProvenanceEvent(model, event)       // E4 / P1 — appends, never rewrites
+```
+
+**The problem emit exists to solve.** A serializing emitter
+(`'/*' + JSON.stringify(meta) + '*/'`) cannot be byte-stable against
+hand-authored files: it re-spells every number (`1.0` → `1`), collapses author
+line breaks, and silently "repairs" the lenient-JSON files V1 tolerates. So
+`emit` **does not serialize what it did not change.** It scans the retained
+metadata TEXT into top-level member spans, diffs the live `model.meta` against a
+fresh decode of that same text, and rebuilds: unchanged key → the author's own
+bytes verbatim; changed key → key text and position kept, VALUE re-serialized;
+added key → appended last, canonical; removed key → span and separator dropped.
+Unknown keys and unknown per-input fields (E3) survive for free — they are never
+re-serialized. The normalization rules N1-N8 (what emit *does* rewrite, and why
+each case has no author text to preserve) are normative in standard §9.2.1.
+
+There is deliberately **no "unchanged ⇒ return raw.source" shortcut**: the
+identity result is produced BY the splice machinery, so the corpus differential
+exercises it rather than measuring a memcpy.
+
+**Acceptance — the corpus round-trip differential.** Every `.fs` in the A8os
+shader corpus (2,323 files) through `parse → emit`, comparing output text to
+source AND re-parsing the output to compare models: **2,261 byte-identical,
+0 text differences, 0 model differences, 0 emitter failures.** The remaining 62
+files carry metadata no conforming parser can decode (duplicate JSON keys,
+malformed arrays — pre-existing corpus defects, reported separately) and never
+reach the emitter.
+
+**Acceptance — the 220-file GLY re-bake** (the named E2/E3 gate): **220 / 220
+byte-identical**, 0 model differences. The published baked corpus survives a
+round trip through the emitter untouched, legacy `_glyOp*` spellings included
+(N6 — rewriting them on sight would break E2 for every one of those files).
+
+**Acceptance — additive-only emission.** Over the same 2,261 files: parse, add
+an `A8_PROVENANCE` block, emit, then remove the block and re-emit —
+**2,261 reproduce the source byte-for-byte, 0 violations.** Every pre-existing
+key, its order, and the GLSL body are provably untouched by an emission that
+gained extension content.
+
+Tests: `tests/isf2-test.js` grows to **164 assertions** (107 unchanged + 57 for
+emit) — round-trip identity on the fixtures, a hand-authored header with
+idiosyncratic indentation and unknown keys, lenient-JSON preservation plus the
+`canonical` repair path, each normalization rule N1-N8, the write-surface
+semantics (writing `model.a8` alone is NOT emitted), E4 append-never-rewrite,
+the error surface, and idempotence.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →
