@@ -243,6 +243,58 @@ idiosyncratic indentation and unknown keys, lenient-JSON preservation plus the
 semantics (writing `model.a8` alone is NOT emitted), E4 append-never-rewrite,
 the error surface, and idempotence.
 
+### Update 8 — `ISFRenderer.setRenderTargetFramebuffer(fb, w, h)` (caller-owned final-pass target — the chain-alpha unlock)
+
+`src/ISFRenderer.js`. Optional caller-owned FINAL-PASS render target
+`this._renderTargetFB` (`null` = upstream: final pass renders to the DEFAULT
+framebuffer, byte-identical). When set to `{fb,width,height}`, the FINAL visible
+pass binds the caller's `WebGLFramebuffer` + viewports to `width,height` instead
+of the default FB.
+
+API:
+```js
+renderer.setRenderTargetFramebuffer(slotFBO, w, h); // final pass → host RGBA FBO
+renderer.setRenderTargetFramebuffer(null);           // clear → default-FB (upstream)
+```
+
+Two final-output bind sites honor it, covering both ISF output shapes:
+- `draw()` else-branch — the single/final pass with **no `TARGET`** (the common
+  case): binds `_renderTargetFB.fb` instead of `FRAMEBUFFER=null`; viewport +
+  `RENDERSIZE` use the target's authoritative `width,height`. The existing
+  per-pass cleanup (`bindFramebuffer null` after the draw) leaves the bind
+  self-contained — the caller target never leaks past `draw()`.
+- `paintToScreen()` — reached when **every pass has a `TARGET`** (the last buffer
+  is copied to screen): binds `_renderTargetFB.fb` for the copy, viewport to the
+  target dims, then rebinds `FRAMEBUFFER=null` (only when a target was set) so the
+  paint is self-contained.
+
+Semantics:
+- **PASSES intermediates + PERSISTENT (self-referencing) buffers are UNTOUCHED** —
+  they are renderer-internal FBOs (`generatePersistentBuffers` / `ISFBuffer`),
+  bound in the `pass.target` branch, unaffected by this override.
+- The renderer **never** deletes, resizes, or creates `fb` — the host owns it.
+  The caller's dims are authoritative for the final pass (mirrors how the host
+  sizes the target FBO), so `_renderSize` and the target may be set independently.
+- Bind sequences stay self-contained per pass (mirror of the intermediate-pass
+  rebinds) — no subsequent renderer op inherits the host FBO.
+- Existence of the method is the host's capability flag (mirror
+  `setValueGLTexture`) — `typeof renderer.setRenderTargetFramebuffer === 'function'`.
+  Lives on `ISFRenderer.prototype`, so it rides the instance the app reaches via
+  its engine's `this._renderer`; no export change needed.
+
+**Why:** Anim8's SRA drawing buffer is `alpha:false`. Every ISF card previously
+rendered its final pass to the DEFAULT framebuffer, then the compositor
+`blitFramebuffer(null → slot.fb)` — and that blit through the alpha-less default
+FB discards `gl_FragColor.a` (slot background reads back `0,0,0,255`), so
+partially-transparent shader output could never composite over the chain seed.
+Feeding the card's RGBA slot FBO straight in as the final-pass target preserves
+alpha end-to-end AND removes the per-card default-FB→slot blit entirely. Host
+wires it behind capability detection so the same host code runs against a
+pre-`setRenderTargetFramebuffer` bundle (default-FB + blit fallback) and the new
+one. Additive: with no target set, every path is byte-identical to Update 7 —
+proven app-side by the G2.2 corpus regression harness (1,800+ shaders
+compile-compare).
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →

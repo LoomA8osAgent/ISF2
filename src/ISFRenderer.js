@@ -26,6 +26,18 @@ function ISFRenderer(gl) {
   // Enables Anim8 per-card renderScale (subsample-for-perf / supersample-for-
   // zoom) against the single shared SRA OffscreenCanvas.
   this._renderSize = null;
+  // [anim8 fork Update 8] Optional caller-owned FINAL-PASS render target.
+  // null = the final visible pass renders to the DEFAULT framebuffer (upstream
+  // behaviour, byte-identical). When set to {fb,width,height}, the FINAL pass
+  // (the no-TARGET pass in draw(), or paintToScreen() when the last pass wrote
+  // to a buffer) binds THIS framebuffer + viewports to width,height instead of
+  // the default FB. PASSES intermediates + PERSISTENT buffers are UNTOUCHED
+  // (renderer-internal FBOs). The renderer NEVER deletes/resizes/creates this
+  // fb — the host owns it. Enables Anim8's SRA to feed the card's RGBA slot FBO
+  // straight in so the shader's gl_FragColor.a survives (the default drawing
+  // buffer is alpha:false — the final blit to it discards alpha, reading back
+  // 0,0,0,255); it also removes the per-card default-FB→slot blit entirely.
+  this._renderTargetFB = null;
 }
 
 // [anim8 fork] Set (or clear) the per-instance render-size override.
@@ -33,6 +45,20 @@ function ISFRenderer(gl) {
 ISFRenderer.prototype.setRenderSize = function setRenderSize(w, h) {
   w = w | 0; h = h | 0;
   this._renderSize = (w > 0 && h > 0) ? { width: w, height: h } : null;
+};
+
+// [anim8 fork Update 8] Set (or clear) the caller-owned final-pass render
+// target framebuffer. Pass a WebGLFramebuffer + its dimensions; null/undefined
+// clears (revert to default-FB behaviour, byte-identical to upstream). The fb
+// MUST belong to the same GL context passed to `new ISFRenderer(gl)`. Existence
+// of this method is the host's capability flag (mirror setValueGLTexture) —
+// `typeof renderer.setRenderTargetFramebuffer === 'function'`.
+ISFRenderer.prototype.setRenderTargetFramebuffer = function setRenderTargetFramebuffer(fb, w, h) {
+  if (fb === null || fb === undefined) {
+    this._renderTargetFB = null;
+    return;
+  }
+  this._renderTargetFB = { fb, width: (w | 0) || 1, height: (h | 0) || 1 };
 };
 
 ISFRenderer.prototype.loadSource = function loadSource(fragmentISF, vertexISFOpt) {
@@ -190,14 +216,23 @@ ISFRenderer.prototype.generatePersistentBuffers = function generatePersistentBuf
 
 ISFRenderer.prototype.paintToScreen = function paintToScreen(destination, target) {
   this.paintProgram.use();
-  this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-  // [anim8 fork] honor the render-size override so the multipass final paint
-  // lands in the same sub-region the host will read back / blit.
-  const ps = this._renderSize || destination;
+  // [anim8 fork Update 8] final paint lands in the caller-provided target
+  // framebuffer when set (host RGBA slot FBO, alpha-preserving), else the
+  // default framebuffer (upstream).
+  const rt = this._renderTargetFB;
+  this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, rt ? rt.fb : null);
+  // [anim8 fork] honor the caller target (authoritative dims) / render-size
+  // override so the multipass final paint lands in the same sub-region the
+  // host will read back / blit.
+  const ps = rt || this._renderSize || destination;
   this.gl.viewport(0, 0, ps.width, ps.height);
   const loc = this.paintProgram.getUniformLocation('tex');
   target.readTexture().bind(loc);
   this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+  // [anim8 fork Update 8] when a caller target was bound, unbind it so the
+  // paint is self-contained — no subsequent renderer op inherits the host FBO.
+  // (Unset path leaves FRAMEBUFFER=null exactly as upstream → byte-identical.)
+  if (rt) this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
   this.program.use();
 };
 
@@ -432,12 +467,18 @@ ISFRenderer.prototype.draw = function draw(destination) {
       lastTarget = buffer;
       this.gl.viewport(0, 0, w, h);
     } else {
-      // [anim8 fork] final pass — render at the override size (sub-region of
-      // destination) when _renderSize is set, else destination's own dims.
-      const renderWidth = sizeRef.width;
-      const renderHeight = sizeRef.height;
+      // [anim8 fork] final pass — render into the caller-provided target
+      // framebuffer when set (Update 6; host RGBA slot FBO, alpha-preserving,
+      // its dims authoritative), else the default framebuffer at the override
+      // size (sub-region of destination) when _renderSize is set, else
+      // destination's own dims. Unset → byte-identical to upstream. The
+      // per-pass cleanup below (bindFramebuffer null) leaves the bind
+      // self-contained, so a caller target never leaks past draw().
+      const rt = this._renderTargetFB;
+      const renderWidth = rt ? rt.width : sizeRef.width;
+      const renderHeight = rt ? rt.height : sizeRef.height;
       this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, rt ? rt.fb : null);
       this.setValue('RENDERSIZE', [renderWidth, renderHeight]);
       lastTarget = null;
       this.gl.viewport(0, 0, renderWidth, renderHeight);
