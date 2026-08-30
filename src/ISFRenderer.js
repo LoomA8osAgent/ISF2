@@ -496,14 +496,29 @@ ISFRenderer.prototype.draw = function draw(destination) {
   }
 };
 
+// [anim8 fork Update 9 — DEBT-56] $token substitution is LONGEST-NAME-FIRST and
+// GLOBAL. Upstream iterated `this.uniforms` in insertion order with a single-
+// occurrence replace, so a declared input whose name is a strict PREFIX of a
+// later token corrupted it: an input named `p` turned `$prepassTile` inside a
+// PASSES WIDTH/HEIGHT expression into `<value>repassTile`, mathJsEval threw
+// "Undefined symbol repassTile" on EVERY draw, and the card rendered nothing —
+// silently, since setValue/compile all succeed (the A8os corpus measured 24
+// records declaring such prefix inputs; the whole knot/attractor tube family
+// was dark, its authoring convention being single-letter symbols). Sorting the
+// names longest-first makes prefix collisions impossible by construction
+// ($prepassTile is consumed before $p can see it); split/join replaces every
+// occurrence instead of the first. $WIDTH/$HEIGHT keep their reserved-word
+// substitution ahead of the loop (the parser refuses inputs named WIDTH/HEIGHT).
 ISFRenderer.prototype.evaluateSize = function evaluateSize(destination, formula) {
   formula += '';
-  let s = formula.replace('$WIDTH', destination.offsetWidth || destination.width).replace('$HEIGHT', destination.offsetHeight || destination.height);
-  for (const name in this.uniforms) {
-    if ({}.hasOwnProperty.call(this.uniforms, name)) {
-      const uniform = this.uniforms[name];
-      s = s.replace(`$${name}`, uniform.value);
-    }
+  let s = formula
+    .split('$WIDTH').join(destination.offsetWidth || destination.width)
+    .split('$HEIGHT').join(destination.offsetHeight || destination.height);
+  const names = Object.keys(this.uniforms)
+    .filter((n) => ({}).hasOwnProperty.call(this.uniforms, n))
+    .sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    s = s.split(`$${name}`).join(this.uniforms[name].value);
   }
 
   return mathJsEval(s);
