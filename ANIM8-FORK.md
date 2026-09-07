@@ -327,6 +327,14 @@ body in `#if A8_PASS == i` and the preprocessor removes every other pass's code.
   same way in the `draw()` bind loop.
 - `draw()` selects `programs[i]` before `PASSINDEX` is set, restores the final
   program after the loop; `cleanup()` frees them.
+- SAME-FRAME READS (ISF semantics, per-pass-programs only): after a targeted pass
+  draws, its freshly written texture is bound on a new unit and every program's
+  sampler pointed at it, so a LATER pass reads THIS frame's result; a pass reading
+  its OWN target still sees the prior frame (PERSISTENT). Upstream binds every
+  buffer once before the loop, so every cross-pass read lagged a frame — fatal for
+  a march→paint split (last frame's hits along this frame's rays). The two
+  `bindTexture(TEXTURE_2D, null)` calls in the loop (they unbind the ACTIVE unit,
+  i.e. the buffer just rebound) are skipped under the flag.
 - Off (the default) is byte-identical to upstream: `this.programs` is null and
   every new branch is skipped. Parser + `injectPassDefine` are covered by
   `tests/parser-test.js`; the multi-program draw is proven app-side.

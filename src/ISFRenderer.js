@@ -546,15 +546,30 @@ ISFRenderer.prototype.draw = function draw(destination) {
       const rt = this._renderTargetFB;
       const renderWidth = rt ? rt.width : sizeRef.width;
       const renderHeight = rt ? rt.height : sizeRef.height;
-      this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+      // [anim8 fork Update 10] these two `bindTexture(null)` calls unbind whatever texture
+      // sits on the ACTIVE unit — under per-pass programs that is the buffer a LATER pass
+      // was just pointed at (the same-frame rebind below), so they are skipped there.
+      if (!this.programs) this.gl.bindTexture(this.gl.TEXTURE_2D, null);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, rt ? rt.fb : null);
       this.setValue('RENDERSIZE', [renderWidth, renderHeight]);
       lastTarget = null;
       this.gl.viewport(0, 0, renderWidth, renderHeight);
     }
     this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+    if (!this.programs) this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    // [anim8 fork Update 10] SAME-FRAME READ — ISF semantics: a LATER pass reads what an
+    // EARLIER pass wrote THIS frame; only a pass reading its OWN target sees the prior
+    // frame (PERSISTENT). Upstream binds every buffer's prior-frame texture once before
+    // the loop, so every cross-pass read lags a frame (the A8os prepass comment records
+    // it). A march→paint split cannot paint last frame's hits along this frame's rays, so
+    // under per-pass programs the just-written texture is bound on a fresh unit and every
+    // program's sampler is pointed at it. The pre-loop bind stays (the pass's own read).
+    if (this.programs && pass.target && buffer) {
+      const fresh = buffer.writeTexture();
+      const unit = fresh.bind(this.program.getUniformLocation(buffer.name));
+      this._setSamplerAll(buffer.name, unit);
+    }
   }
   if (this.programs) { this.program = finalProgram; this.program.use(); }   // [Update 10]
 
