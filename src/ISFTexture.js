@@ -25,6 +25,7 @@ ISFTexture.prototype.bind = function textureBind(location) {
   if (location !== -1) {
     this.gl.uniform1i(location, newTexUnit);
   }
+  return newTexUnit;   // [anim8 fork Update 10] the unit, so a caller can point other programs' samplers at it
 };
 
 ISFTexture.prototype.setSize = function setSize(w, h) {

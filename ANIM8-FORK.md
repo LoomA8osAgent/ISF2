@@ -295,6 +295,42 @@ one. Additive: with no target set, every path is byte-identical to Update 7 —
 proven app-side by the G2.2 corpus regression harness (1,800+ shaders
 compile-compare).
 
+### Update 9 — `evaluateSize` `$token` substitution is longest-name-first + global (A8os S88 B10 / DEBT-56)
+
+`src/ISFRenderer.js`. Upstream substituted each declared input's `$name` by a
+single insertion-order replace, so an input that is a strict PREFIX of a later
+token corrupted it (`p` turned `$prepassTile` into `<value>repassTile`, and
+`mathJsEval` threw `Undefined symbol` on EVERY draw — the whole knot/attractor
+tube family rendered nothing, silently). Names are now sorted longest-first and
+replaced globally. Additive: byte-identical for every header without a
+prefix-colliding input.
+
+### Update 10 — `A8_PASS_PROGRAMS`: one compiled program per pass (A8os G-MARCHER-2PASS)
+
+`src/ISFParser.js` + `src/ISFRenderer.js` + `src/ISFTexture.js`. Upstream ISF
+runs every pass of a multipass shader through ONE fragment program branched on
+the `PASSINDEX` uniform, so the heaviest pass carries the code (and the register
+footprint) of every other pass — which is what makes a march-then-paint split
+pointless upstream. With `"A8_PASS_PROGRAMS": true` in the header the parser
+sets `perPassPrograms`, and `setupGL` builds `passes.length` programs from the
+same source, each prefixed `#define A8_PASS <i>` right after the `#version`
+line (`ISFRenderer.injectPassDefine`, exported + tested) so a pass wraps its
+body in `#if A8_PASS == i` and the preprocessor removes every other pass's code.
+
+- `this.programs[]` holds them; `this.program` stays the FINAL pass's program so
+  every single-program path (`setValue`, `paintToScreen`, the host's uniform
+  table) is unchanged.
+- Non-texture uniforms are pushed to EVERY program (`pushUniform` loops,
+  `_pushUniformTo` does one). Textures are bound once — units are global GL
+  state — and their sampler location set on every program (`_setSamplerAll`;
+  `ISFTexture.bind` now returns the unit it chose). Pass buffers propagate the
+  same way in the `draw()` bind loop.
+- `draw()` selects `programs[i]` before `PASSINDEX` is set, restores the final
+  program after the loop; `cleanup()` frees them.
+- Off (the default) is byte-identical to upstream: `this.programs` is null and
+  every new branch is skipped. Parser + `injectPassDefine` are covered by
+  `tests/parser-test.js`; the multi-program draw is proven app-side.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →

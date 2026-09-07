@@ -40,6 +40,14 @@ ISFParser.prototype.parse = function parse(rawFragmentShader, rawVertexShader) {
 
     const passesArray = metadata.PASSES || [{}];
     this.passes = this.parsePasses(passesArray);
+    // [anim8 fork Update 10] A8_PASS_PROGRAMS: true — compile ONE PROGRAM PER PASS.
+    // Upstream ISF runs every pass through a single fragment program branched on the
+    // PASSINDEX uniform, so a multipass shader's heaviest pass carries the code (and
+    // the register footprint) of every other pass. With this flag the renderer builds
+    // passes.length programs from the same source, each prefixed `#define A8_PASS i`,
+    // so a pass can `#if A8_PASS == i` its body and the preprocessor removes the rest.
+    // Off (the default) is byte-identical to upstream.
+    this.perPassPrograms = !!metadata.A8_PASS_PROGRAMS;
     const endOfMetadata =
       this.rawFragmentShader.indexOf(metadataString) + metadataString.length + 2;
     this.rawFragmentMain = this.rawFragmentShader.substring(endOfMetadata);

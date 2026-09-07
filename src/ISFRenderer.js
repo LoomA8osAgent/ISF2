@@ -196,11 +196,56 @@ ISFRenderer.prototype.setupPaintToScreen = function setupPaintToScreen() {
   return this.paintProgram.bindVertices();
 };
 
+// [anim8 fork Update 10] Per-pass fragment source: `#define A8_PASS <i>` inserted right
+// after the `#version` line (an ES 3.00 shader must keep #version first), so the pass's
+// own `#if A8_PASS == i` blocks survive and every other pass's body is stripped by the
+// preprocessor. No #version → prepended. Pure; exported for the test harness.
+ISFRenderer.injectPassDefine = function injectPassDefine(src, i) {
+  const line = `#define A8_PASS ${i | 0}\n`;
+  const m = /^[ \t]*#version[^\n]*\n/.exec(src);
+  if (!m) return line + src;
+  const at = m.index + m[0].length;
+  return src.slice(0, at) + line + src.slice(at);
+};
+
 ISFRenderer.prototype.setupGL = function setupGL() {
   this.cleanup();
-  this.program = new ISFGLProgram(this.gl, this.vertexShader, this.fragmentShader);
-  this.program.bindVertices();
+  this.programs = null;
+  const passes = (this.model && this.model.passes) || [];
+  if (this.model && this.model.perPassPrograms && passes.length > 1) {
+    // [anim8 fork Update 10] one program per pass; `this.program` stays the FINAL
+    // pass's program so every single-program code path (setValue, paintToScreen,
+    // the host's uniform table) keeps working unchanged.
+    this.programs = [];
+    for (let i = 0; i < passes.length; ++i) {
+      const p = new ISFGLProgram(this.gl, this.vertexShader,
+        ISFRenderer.injectPassDefine(this.fragmentShader, i));
+      p.bindVertices();
+      this.programs.push(p);
+    }
+    this.program = this.programs[this.programs.length - 1];
+  } else {
+    this.program = new ISFGLProgram(this.gl, this.vertexShader, this.fragmentShader);
+    this.program.bindVertices();
+  }
   this.generatePersistentBuffers();
+};
+
+// [anim8 fork Update 10] Sampler locations are PER PROGRAM while texture units are
+// global GL state: a texture bound once to a unit is addressed from every pass's
+// program by setting that program's sampler uniform to the same unit. No-op in
+// single-program mode (the original bind already set it on `this.program`).
+ISFRenderer.prototype._setSamplerAll = function _setSamplerAll(name, unit) {
+  if (!this.programs) return;
+  const cur = this.program;
+  for (let i = 0; i < this.programs.length; ++i) {
+    const p = this.programs[i];
+    if (p === cur) continue;
+    p.use();
+    const loc = p.getUniformLocation(name);
+    if (loc !== null && loc !== -1) this.gl.uniform1i(loc, unit);
+  }
+  cur.use();
 };
 
 ISFRenderer.prototype.generatePersistentBuffers = function generatePersistentBuffers() {
@@ -258,6 +303,7 @@ ISFRenderer.prototype.pushTexture = function pushTexture(uniform) {
     this.gl.activeTexture(this.gl.TEXTURE0 + newTexUnit);
     this.gl.bindTexture(this.gl.TEXTURE_2D, uniform.externalTexture);
     this.gl.uniform1i(loc, newTexUnit);
+    this._setSamplerAll(uniform.name, newTexUnit);   // [Update 10] every pass program
     if (!uniform.textureLoaded) {
       uniform.textureLoaded = true;
       const sz = uniform.externalSize || [1, 1];
@@ -283,7 +329,8 @@ ISFRenderer.prototype.pushTexture = function pushTexture(uniform) {
   }
 
   const loc = this.program.getUniformLocation(uniform.name);
-  uniform.texture.bind(loc);
+  const texUnit = uniform.texture.bind(loc);
+  this._setSamplerAll(uniform.name, texUnit);   // [Update 10] every pass program
   this.gl.texImage2D(
     this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, uniform.value);
   if (!uniform.textureLoaded) {
@@ -304,6 +351,23 @@ ISFRenderer.prototype.pushUniforms = function pushUniforms() {
 };
 
 ISFRenderer.prototype.pushUniform = function pushUniform(uniform) {
+  // [anim8 fork Update 10] a non-texture uniform lands on EVERY pass program (values are
+  // per program); textures are bound once and their sampler propagated by pushTexture.
+  if (this.programs && uniform.type !== 't') {
+    const cur = this.program;
+    for (let i = 0; i < this.programs.length; ++i) {
+      this.program = this.programs[i];
+      this.program.use();
+      this._pushUniformTo(uniform);
+    }
+    this.program = cur;
+    this.program.use();
+    return;
+  }
+  this._pushUniformTo(uniform);
+};
+
+ISFRenderer.prototype._pushUniformTo = function _pushUniformTo(uniform) {
   const loc = this.program.getUniformLocation(uniform.name);
   if (loc !== -1) {
     if (uniform.type === 't') {
@@ -432,7 +496,8 @@ ISFRenderer.prototype.draw = function draw(destination) {
     const buffer = buffers[i];
     const readTexture = buffer.readTexture();
     const loc = this.program.getUniformLocation(buffer.name);
-    readTexture.bind(loc);
+    const unit = readTexture.bind(loc);
+    if (buffer.name) this._setSamplerAll(buffer.name, unit);   // [Update 10]
     if (buffer.name) {
       this.setValue(`_${buffer.name}_imgSize`, [buffer.width, buffer.height]);
       this.setValue(`_${buffer.name}_imgRect`, [0, 0, 1, 1]);
@@ -447,8 +512,12 @@ ISFRenderer.prototype.draw = function draw(destination) {
   // destination canvas's own dims so the shader rasterizes at the host's
   // requested resolution into a sub-region of the (unchanged) destination.
   const sizeRef = this._renderSize || destination;
+  const finalProgram = this.program;
   for (let i = 0; i < passes.length; ++i) {
     const pass = passes[i];
+    // [anim8 fork Update 10] pass i draws with ITS program; uniforms and samplers were
+    // already pushed to every program, so only the bind changes here.
+    if (this.programs) { this.program = this.programs[i]; this.program.use(); }
     this.setValue('PASSINDEX', i);
     const buffer = pass.buffer;
     if (pass.target) {
@@ -487,6 +556,7 @@ ISFRenderer.prototype.draw = function draw(destination) {
     this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
   }
+  if (this.programs) { this.program = finalProgram; this.program.use(); }   // [Update 10]
 
   for (let i = 0; i < buffers.length; ++i) {
     buffers[i].flip();
@@ -526,6 +596,14 @@ ISFRenderer.prototype.evaluateSize = function evaluateSize(destination, formula)
 
 ISFRenderer.prototype.cleanup = function cleanup() {
   this.contextState.reset();
+  // [anim8 fork Update 10] the per-pass programs are ours to free; the single-program
+  // path keeps upstream's (unchanged) lifetime.
+  if (this.programs) {
+    for (let i = 0; i < this.programs.length; ++i) {
+      try { this.programs[i].cleanup(); } catch (e) { /* context lost */ }
+    }
+    this.programs = null;
+  }
   if (this.renderBuffers) {
     for (let i = 0; i < this.renderBuffers.length; ++i) {
       this.renderBuffers[i].destroy();

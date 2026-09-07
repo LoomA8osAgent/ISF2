@@ -120,6 +120,33 @@ test('IMG_PIXEL to texture2D', function (t) {
 
     t.not(fragmentShader.indexOf(test.expectedReplacement), test.expectedIndex, test.toReplace);
   });
-  
+
+  t.end();
+});
+
+// [anim8 fork Update 10] A8_PASS_PROGRAMS — one compiled program per pass.
+test('Update 10: A8_PASS_PROGRAMS header flag + injectPassDefine', function(t) {
+  var ISFRenderer = require('../dist/build-worker').interactiveShaderFormat.Renderer;
+  var src = '/*{ "PASSES": [{"TARGET":"a8pre","FLOAT":true},{}], "A8_PASS_PROGRAMS": true }*/\n' +
+            'void main(){ gl_FragColor = vec4(float(PASSINDEX)); }';
+  var p = new ISFParser();
+  p.parse(src);
+  t.equal(p.perPassPrograms, true, 'A8_PASS_PROGRAMS: true parses to perPassPrograms');
+  t.equal(p.passes.length, 2, 'two passes');
+
+  var q = new ISFParser();
+  q.parse('/*{ "PASSES": [{"TARGET":"x"},{}] }*/\nvoid main(){}');
+  t.equal(q.perPassPrograms, false, 'absent flag -> false (upstream byte-identical)');
+
+  var es3 = '#version 300 es\nprecision highp float;\nvoid main(){}';
+  var out = ISFRenderer.injectPassDefine(es3, 1);
+  t.equal(out.split('\n')[0], '#version 300 es', '#version stays first');
+  t.equal(out.split('\n')[1], '#define A8_PASS 1', 'define lands right after #version');
+  t.equal(out.split('\n').length, es3.split('\n').length + 1, 'exactly one line added');
+
+  var es1 = 'precision highp float;\nvoid main(){}';
+  var out1 = ISFRenderer.injectPassDefine(es1, 0);
+  t.equal(out1.split('\n')[0], '#define A8_PASS 0', 'no #version -> define prepended');
+  t.equal(out1.slice(out1.indexOf('\n') + 1), es1, 'rest untouched');
   t.end();
 });
