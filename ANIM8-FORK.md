@@ -339,6 +339,28 @@ body in `#if A8_PASS == i` and the preprocessor removes every other pass's code.
   every new branch is skipped. Parser + `injectPassDefine` are covered by
   `tests/parser-test.js`; the multi-program draw is proven app-side.
 
+### Update 11 — `loadSource(src, vs, { program })` adopts a caller-linked program (A8os DEBT-32 / DEBT-38 lane 2)
+
+- `ISFGLProgram.adopt(gl, program, vShader, fShader)` wraps an ALREADY-LINKED program
+  without compiling or linking (LINK_STATUS must read true — a cached read after the
+  caller's COMPLETION_STATUS poll, never a stall). Ownership transfers; `cleanup()`
+  deletes it like a compiled one (null shaders tolerated).
+- `ISFRenderer.loadSource` takes a third arg `opts.program = { program, vShader,
+  fShader, vertexShader, fragmentShader }`. `setupGL` adopts it ONLY in
+  single-program mode and ONLY when the parser's emitted vertex + fragment strings
+  equal the handed-over strings byte-for-byte; any miss compiles as before and leaves
+  the caller's objects untouched. `renderer.adoptedProgram` says which happened;
+  `ISFRenderer.supportsProgramAdopt = true` is the host capability flag.
+- Why: the A8os hotswap links the same pair in the background under
+  KHR_parallel_shader_compile and then handed this lib the SOURCE TEXT — a second
+  link on the main thread. Adopting removes that link entirely (adopt ~34 ms measured).
+  Note for whoever measures next: the residual cold-add freeze on ANGLE-Metal is the
+  GPU process building the pipeline state at the FIRST DRAW (measured 4.7 s via a sync
+  fence, `sdf.op-add-cold-attribution`), not anything this lib does.
+- Test: `tests/renderer-test.js` 'Adopt caller-linked program' (adopted program IS the
+  renderer's + byte-identical render; mismatched strings refused with caller objects
+  intact; unlinked program refused). Needs headless-gl's native binding.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →
