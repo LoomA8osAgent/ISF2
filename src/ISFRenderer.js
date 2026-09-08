@@ -61,10 +61,27 @@ ISFRenderer.prototype.setRenderTargetFramebuffer = function setRenderTargetFrame
   this._renderTargetFB = { fb, width: (w | 0) || 1, height: (h | 0) || 1 };
 };
 
-ISFRenderer.prototype.loadSource = function loadSource(fragmentISF, vertexISFOpt) {
+// [anim8 fork Update 11] opts.program = { program, vShader, fShader, vertexShader,
+// fragmentShader } — a caller-owned WebGLProgram ALREADY LINKED from exactly the GLSL
+// strings this parser will emit for `fragmentISF` (the host parsed the same source with
+// the same ISFParser). setupGL adopts it (ISFGLProgram.adopt) instead of compiling +
+// linking again, when: single-program mode, the parsed vertex + fragment strings equal
+// the ones handed over byte-for-byte, and LINK_STATUS is true. Any miss falls back to
+// the ordinary compile path and leaves the caller's objects UNTOUCHED (the caller owns
+// them until `renderer.adoptedProgram === true`). Capability flag for hosts:
+// ISFRenderer.supportsProgramAdopt.
+ISFRenderer.supportsProgramAdopt = true;
+
+ISFRenderer.prototype.loadSource = function loadSource(fragmentISF, vertexISFOpt, opts) {
   const parser = new ISFParser();
   parser.parse(fragmentISF, vertexISFOpt);
-  this.sourceChanged(parser.fragmentShader, parser.vertexShader, parser);
+  this._adoptSpec = (opts && opts.program) || null;
+  this.adoptedProgram = false;
+  try {
+    this.sourceChanged(parser.fragmentShader, parser.vertexShader, parser);
+  } finally {
+    this._adoptSpec = null;
+  }
 };
 
 ISFRenderer.prototype.sourceChanged = function sourceChanged(fragmentShader, vertexShader, model) {
@@ -225,7 +242,17 @@ ISFRenderer.prototype.setupGL = function setupGL() {
     }
     this.program = this.programs[this.programs.length - 1];
   } else {
-    this.program = new ISFGLProgram(this.gl, this.vertexShader, this.fragmentShader);
+    // [anim8 fork Update 11] adopt the caller's linked program when it was built from
+    // THESE strings; otherwise compile as before.
+    const spec = this._adoptSpec;
+    let adopted = null;
+    if (spec && spec.program &&
+        spec.vertexShader === this.vertexShader &&
+        spec.fragmentShader === this.fragmentShader) {
+      adopted = ISFGLProgram.adopt(this.gl, spec.program, spec.vShader, spec.fShader);
+    }
+    this.program = adopted || new ISFGLProgram(this.gl, this.vertexShader, this.fragmentShader);
+    this.adoptedProgram = !!adopted;
     this.program.bindVertices();
   }
   this.generatePersistentBuffers();

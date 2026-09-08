@@ -6,6 +6,31 @@ function ISFGLProgram(gl, vs, fs) {
   this.locations = {};
 }
 
+// [anim8 fork Update 11] ADOPT a caller-owned, ALREADY-LINKED program instead of
+// compiling + linking again. The host (A8os ISFEngine._hotswapBegin) compiles and links
+// the same vertex/fragment pair in the background under KHR_parallel_shader_compile,
+// polls COMPLETION_STATUS, and only then adopts — so the relink this constructor
+// otherwise performs (the DEBT-32 ~2.6s main-thread block on a cold source) is paid
+// nowhere. Ownership transfers to the ISFGLProgram: cleanup() deletes program + shaders
+// exactly as for a compiled one. Returns null (no adoption) if the program does not
+// report LINK_STATUS true — reading LINK_STATUS after COMPLETION_STATUS is a cached
+// read, never a stall; the caller then falls back to the compile path and keeps its
+// objects.
+ISFGLProgram.adopt = function adopt(gl, program, vShader, fShader) {
+  if (!program) return null;
+  let linked = false;
+  try { linked = !!gl.getProgramParameter(program, gl.LINK_STATUS); } catch (e) { linked = false; }
+  if (!linked) return null;
+  const p = Object.create(ISFGLProgram.prototype);
+  p.gl = gl;
+  p.vShader = vShader || null;
+  p.fShader = fShader || null;
+  p.program = program;
+  p.locations = {};
+  p.adopted = true;
+  return p;
+};
+
 ISFGLProgram.prototype.use = function glProgramUse() {
   this.gl.useProgram(this.program);
 };
@@ -30,8 +55,8 @@ ISFGLProgram.prototype.bindVertices = function bindVertices() {
 };
 
 ISFGLProgram.prototype.cleanup = function cleanup() {
-  this.gl.deleteShader(this.fShader);
-  this.gl.deleteShader(this.vShader);
+  if (this.fShader) this.gl.deleteShader(this.fShader);
+  if (this.vShader) this.gl.deleteShader(this.vShader);
   this.gl.deleteProgram(this.program);
   this.gl.deleteBuffer(this.buffer);
 };

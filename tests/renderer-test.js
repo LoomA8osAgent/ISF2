@@ -104,3 +104,57 @@ test('Persistent Buffers', function(t) {
 
   matchFilterToExpected(generatorSrc, './tests/expected/persistent-buffers.png', callbacks);
 });
+
+// [anim8 fork Update 11] loadSource(src, undefined, { program }) adopts a caller-owned
+// linked program built from the parser's own strings — no second compile/link — and
+// renders identically; a program built from DIFFERENT strings is refused (fallback
+// compile, caller's objects untouched).
+test('Adopt caller-linked program (Update 11)', function(t) {
+  var ISFParser = require('../dist/build-worker').interactiveShaderFormat.Parser;
+  var src = assetLoad('generator.fs');
+  var ctx = gl(128, 128);
+  var parsed = new ISFParser();
+  parsed.parse(src);
+  function link(vsSrc, fsSrc) {
+    var vs = ctx.createShader(ctx.VERTEX_SHADER); ctx.shaderSource(vs, vsSrc); ctx.compileShader(vs);
+    var fs = ctx.createShader(ctx.FRAGMENT_SHADER); ctx.shaderSource(fs, fsSrc); ctx.compileShader(fs);
+    var prog = ctx.createProgram(); ctx.attachShader(prog, vs); ctx.attachShader(prog, fs); ctx.linkProgram(prog);
+    return { program: prog, vShader: vs, fShader: fs, vertexShader: vsSrc, fragmentShader: fsSrc };
+  }
+  t.equal(ISFRenderer.supportsProgramAdopt, true, 'capability flag published');
+
+  // 1 — matching strings → adopted, same program object, renders to the reference.
+  var spec = link(parsed.vertexShader, parsed.fragmentShader);
+  var r1 = new ISFRenderer(ctx);
+  r1.loadSource(src, undefined, { program: spec });
+  t.equal(r1.valid, true, 'adopting renderer is valid');
+  t.equal(r1.adoptedProgram, true, 'adoptedProgram reports true');
+  t.equal(r1.program.program, spec.program, 'the caller program IS the renderer program');
+  r1.draw(destination);
+  var px = new Uint8Array(width * height * 4);
+  ctx.readPixels(0, 0, width, height, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+  var r2 = new ISFRenderer(ctx);
+  r2.loadSource(src);
+  r2.draw(destination);
+  var px2 = new Uint8Array(width * height * 4);
+  ctx.readPixels(0, 0, width, height, ctx.RGBA, ctx.UNSIGNED_BYTE, px2);
+  var diff = 0; for (var i = 0; i < px.length; i++) if (px[i] !== px2[i]) diff++;
+  t.equal(diff, 0, 'adopted render byte-identical to the compiled render');
+
+  // 2 — strings differ (a stale program from another source) → refused, compiled instead.
+  var stale = link(parsed.vertexShader, parsed.fragmentShader + '\n// stale\n');
+  var r3 = new ISFRenderer(ctx);
+  r3.loadSource(src, undefined, { program: stale });
+  t.equal(r3.valid, true, 'fallback renderer is valid');
+  t.equal(r3.adoptedProgram, false, 'mismatched strings are NOT adopted');
+  t.notEqual(r3.program.program, stale.program, 'renderer compiled its own program');
+  t.equal(ctx.isProgram(stale.program), true, 'caller objects left untouched on refusal');
+
+  // 3 — an unlinked program is refused.
+  var dead = { program: ctx.createProgram(), vertexShader: parsed.vertexShader, fragmentShader: parsed.fragmentShader };
+  var r4 = new ISFRenderer(ctx);
+  r4.loadSource(src, undefined, { program: dead });
+  t.equal(r4.adoptedProgram, false, 'LINK_STATUS false is refused');
+  t.equal(r4.valid, true, 'and falls back to a valid compile');
+  t.end();
+});
