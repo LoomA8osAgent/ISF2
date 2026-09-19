@@ -3,8 +3,27 @@
 Fork of [msfeldstein/interactive-shader-format-js](https://github.com/msfeldstein/interactive-shader-format-js)
 (MIT, © 2025 Michael Feldstein — license unchanged, see `LICENSE`).
 
-Upstream tracked as the `upstream` git remote (fetch-only). No public/origin
-remote — local repo only until Anim8 release candidate (operator policy).
+Upstream tracked as the `upstream` git remote (fetch-only). Public home since
+2026-09-19 (operator ruling): **https://github.com/LoomA8osAgent/anim8-isf-renderer**
+(`origin`, a GitHub fork of upstream so attribution and upstream PRs stay linked).
+
+## Interop — the two composers and this renderer move together
+
+This fork defines the **ISF2** dialect A8os emits and ingests: the header
+extensions (parameter groups, `layer:N` fill layers, declared roles such as
+`_lightRig` / `_shapeMath`, the injected ops/camera preludes) on top of ISF.
+Two sibling repos consume that contract and must stay consistent with it:
+
+- **A8os / visualeyes** — the compositor (`app/js/formats/isf.js` + the ingest
+  layer) is the primary consumer; the standard lives at `specs/isf2-standard.md`.
+- **[jevisualeyes](https://github.com/LoomA8osAgent/jevisualeyes)** — the
+  decision-model composer (presets now, IR-emitted records next). Its emitter
+  targets THIS dialect; plan: A8os `roadmap/jevisualeyes-rework.md` §5.2.
+
+Rule: a header extension exists in `specs/isf2-standard.md` first, then in this
+renderer's parser, then in the composer's emitter — never in one without the
+other two. A change here that the compositor or the composer cannot read is a
+regression, not a feature.
 
 ## Why fork
 
