@@ -1,4 +1,4 @@
-# anim8-isf-renderer (ISF2)
+# ISF2
 
 **A8os fork of [msfeldstein/interactive-shader-format-js](https://github.com/msfeldstein/interactive-shader-format-js)** (MIT, unchanged). Brings the ISF renderer current and carries the **ISF2** header extensions the A8os compositor emits and ingests. Fork changelog + interop rules: [ANIM8-FORK.md](ANIM8-FORK.md). Siblings: [A8os](https://github.com/exiledsurfer) (the compositor, `specs/isf2-standard.md`) · [jevisualeyes](https://github.com/LoomA8osAgent/jevisualeyes) (the decision-model composer whose emitter targets this dialect).
 

@@ -1,10 +1,10 @@
-# anim8-isf-renderer — Anim8 fork of interactive-shader-format-js
+# ISF2 — the A8os fork of interactive-shader-format-js (local clone `~/gits/ISF2`; formerly `anim8-isf-renderer`)
 
 Fork of [msfeldstein/interactive-shader-format-js](https://github.com/msfeldstein/interactive-shader-format-js)
 (MIT, © 2025 Michael Feldstein — license unchanged, see `LICENSE`).
 
 Upstream tracked as the `upstream` git remote (fetch-only). Public home since
-2026-09-19 (operator ruling): **https://github.com/LoomA8osAgent/anim8-isf-renderer**
+2026-09-19 (operator ruling): **https://github.com/LoomA8osAgent/ISF2**
 (`origin`, a GitHub fork of upstream so attribution and upstream PRs stay linked).
 
 ## Interop — the two composers and this renderer move together
