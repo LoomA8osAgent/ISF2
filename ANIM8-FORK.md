@@ -15,12 +15,17 @@ extensions (parameter groups, `layer:N` fill layers, declared roles such as
 Two sibling repos consume that contract and must stay consistent with it:
 
 - **A8os / visualeyes** — the compositor (`app/js/formats/isf.js` + the ingest
-  layer) is the primary consumer; the standard lives at `specs/isf2-standard.md`.
+  layer) is the primary consumer. Its `specs/isf2-standard.md` is a pointer stub
+  only since 2026-09-19.
 - **[jevisualeyes](https://github.com/LoomA8osAgent/jevisualeyes)** — the
   decision-model composer (presets now, IR-emitted records next). Its emitter
   targets THIS dialect; plan: A8os `roadmap/jevisualeyes-rework.md` §5.2.
 
-Rule: a header extension exists in `specs/isf2-standard.md` first, then in this
+**The standard lives HERE: [`SPEC/isf2-standard.md`](SPEC/isf2-standard.md)** — A8VSN 2,
+ratified 2026-09-19, moved from the A8os spec tree so it sits beside the reference
+implementation that is its own conformance oracle.
+
+Rule: a header extension exists in `SPEC/isf2-standard.md` first, then in this
 renderer's parser, then in the composer's emitter — never in one without the
 other two. A change here that the compositor or the composer cannot read is a
 regression, not a feature.
