@@ -385,6 +385,69 @@ body in `#if A8_PASS == i` and the preprocessor removes every other pass's code.
   renderer's + byte-identical render; mismatched strings refused with caller objects
   intact; unlinked program refused). Needs headless-gl's native binding.
 
+### Update 12 — `A8VSN 2` conformance: the ratified block set parses, validates and recalls (standard §11.1 step iv)
+
+`src/ISF2.js` + `tests/isf2-a8vsn2-test.js` + six fixtures under `tests/assets/`.
+`SPEC/isf2-standard.md` ratified §6.4–§6.18 + Appendices A/B on 2026-09-19, and §11.1
+sequences the renderer BEFORE the A8os producer for one reason: **the reference renderer is
+the conformance oracle, so it must be proven to accept the new blocks before anything
+conforms to them.** Otherwise the producer conforms to a draft.
+
+- **`A8VSN` is now `"2"`.** Nineteen of the twenty ratified items are additive; the one that
+  is not is §6.6 DEPRECATING `A8_ANIMATE`, which changes what a conforming PRODUCER must
+  emit — and a deprecation is not an addition. Nothing here rejects an A8VSN 1 file.
+- **`parse` carries every defined block** — `A8_PRESETS` · `A8_MODULATION` · `A8_OPS` ·
+  `A8_RAYMARCH_OPS` · `A8_FOLD` · `A8_PASS_PROGRAMS` · `A8_LAYERS` · `A8_PLAYBACK` ·
+  `A8_PROVENANCE.generation`, plus the 20-field §6.14 per-input family (`_stackOrder`,
+  `_labelBy`, `_lightRig`, `_shapeMath`, `_bind`, …). `A8_OPS` was RESERVED by §6.2 while
+  the reference producer emitted it; `A8_LAYERS` likewise. They are defined now, which is
+  what §6.17 exists to fix.
+- **Grandfathering is read-side complete and never warns as "unknown":**
+  `A8_CARD_PRESETS` → `A8_PRESETS.bank`, `A8_GROUP_BANKS` → `.groupBanks`, `_glyOp*`,
+  `_groupBlendable` → `_blendable`, `TRANSPORT_DOMAIN` → `_transportDomain`, and the flat
+  `A8_CAMERA` iCam* map → `{ model, state }` with `iCamModel` lifted out. **N6 still binds:
+  nothing is rewritten on sight.** The legacy fixture re-emits byte-for-byte.
+- **`A8_CAMERA` is RECONCILED** (§6.11). §6.2.2 defined a capability FLAG and the shipped
+  emitter wrote camera STATE under the same key — two incompatible shapes, one name, both
+  deployed. `model.a8.camera` is `{ mode, model, state, legacy, raw }`, and an ABSENT `mode`
+  is correct rather than an unknown-mode warning (which is what the pre-Update-12 check
+  emitted for every grandfathered file).
+- **`validate` implements V10 / V11 / V12** on top of the existing V1–V9, plus a per-block
+  validator for each new key as its §"Reference renderer" line specifies. V10: a preset
+  `params`/`ranges`/`inverts` key naming no declared input (a typo was a silent no-op —
+  the fail-open shape). V11: a `_bind` bracket outside the input's `[MIN, MAX]` (a bracket
+  outside its own domain binds to nothing). V12: per-input `DESCRIPTION` + top-level
+  `LONG_DESCRIPTION`, **WARNING at Level 1** — a legacy ISF file legitimately carries neither.
+- **V7 accepts the shipped gate grammar.** `in: [...]` (alias of `anyOf`), `{ any: [ … ] }`
+  (OR, composing with the array-AND form) and `def:` were accepted by the host's evaluator
+  and by no validator; a G1-strict reading REDs the host's own camera rig. `_contextRange`
+  takes the same grammar.
+- **`validate` returns `{ ok, level, levelDetail, errors, warnings, info, skipped }`** and
+  accepts SOURCE TEXT as well as a model. `level` is the §6.18 class the file DEMANDS of a
+  host (§9.1 defines the ladder for hosts, so a file's level is the demand it places on one),
+  with `levelDetail` naming which declaration forced each rung.
+- **`applyPreset(model, slotId, opts?)`** returns the flat `{name: value}` map §6.5 asks for,
+  built in the normative recall order (camera before params) with a slot's `camera`
+  overriding the file-level authored view per key. **`presetPlan`** returns the ordered plan
+  for what a flat map cannot express — `ops` first because activating an op MINTS INPUTS,
+  `ranges` before `params` because a value push CLAMPS to the live bracket.
+- **`sourceId(source)` → `Promise<"sha256:<hex>">`** (§6.15), over SubtleCrypto so one code
+  path serves browser and node and the module stays dependency-light.
+  `canonicalSourceText(source)` is the synchronous normalisation: string- and object-valued
+  fields in stable key order with dotted keys, `params` skipped, because state is never
+  identity.
+- **NOT touched: the renderer.** §6.7 and §6.11 say the reference renderer should IMPLEMENT
+  ops injection and the camera, "it owns the injection seam" — but the standard publishes the
+  op ROSTER, the coordinate space and the composition order without publishing the GLSL, and
+  Appendix B publishes every `iCam*` domain without publishing the transform. Implementing
+  either would mean INVENTING the math, and a conformance oracle that invents is not one.
+  `ISFRenderer.js` is unchanged; both blocks are parse + validate here. See the return brief.
+- 165 new assertions (`tests/isf2-a8vsn2-test.js`), each new rule asserted RED on a fixture
+  that breaks it and GREEN on the one beside it — a validator that cannot fail is not a
+  validator. Six fixtures: `a8vsn2-full.fs`, `a8vsn1-legacy.fs` (every grandfathered
+  spelling, zero errors), `red-preset-unknown-param.fs`, `red-bind-out-of-range.fs`,
+  `red-clock-position.fs`, `warn-unknown-a8-key.fs`.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →

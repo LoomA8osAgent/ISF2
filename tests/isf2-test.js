@@ -537,7 +537,12 @@ test('ISF2: model.meta is the write surface; setExtension refreshes the derived 
   m.a8.camera = { mode: 'ray' };                       // writing the VIEW alone
   t.equal(ISF2.parse(ISF2.emit(m)).meta.A8_CAMERA, undefined, 'view writes are NOT emitted');
   ISF2.setExtension(m, 'A8_CAMERA', { mode: 'ray' });
-  t.deepEqual(m.a8.camera, { mode: 'ray' }, 'setExtension refreshes the view');
+  // [Update 12] a8.camera is the §6.11 RECONCILED shape { mode, model, state },
+  // not the raw block — two incompatible shapes shipped under one name and the
+  // view is where they become one. `raw` keeps the author's bytes reachable.
+  t.equal(m.a8.camera.mode, 'ray', 'setExtension refreshes the view');
+  t.deepEqual(m.a8.camera.state, {}, 'no authored camera state');
+  t.equal(m.a8.camera.legacy, false, 'the { mode } shape is not the grandfathered flat map');
   t.deepEqual(ISF2.parse(ISF2.emit(m)).meta.A8_CAMERA, { mode: 'ray' }, 'and IS emitted');
   t.equal(m.a8.isISF2, true, 'the file is now an ISF2 file');
   try {
