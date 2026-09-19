@@ -320,7 +320,8 @@ test('ISF2 §6.7/§6.8: unknown ops degrade, `view` is retired, hooks are enumer
   t.ok(codes(v.info).indexOf('ops-unknown-name') !== -1, 'but it is reported as info');
   t.ok(codes(v.warnings).indexOf('ops-retired-scope') !== -1, '`view` is RETIRED and warns');
   t.ok(codes(v.errors).indexOf('raymarch-unknown-hook') !== -1, 'a hook outside the four splice points is an error');
-  t.ok(codes(v.errors).indexOf('raymarch-unknown-starter') !== -1, 'a starter outside the Appendix A.2 roster is an error');
+  t.ok(codes(v.warnings).indexOf('raymarch-unknown-starter') !== -1,
+    'a starter outside the Appendix A.2 roster is a WARNING — starters is presentation-only (§6.8 ruling 2026-09-19)');
   t.end();
 });
 

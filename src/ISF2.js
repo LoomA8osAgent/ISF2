@@ -1317,7 +1317,7 @@ function validate(model) {
   validatePresets(a8, names, err, wrn, inf);
   validateModulation(a8, names, err, wrn);
   validateOps(a8, err, wrn, inf);
-  validateRaymarchOps(a8, err);
+  validateRaymarchOps(a8, err, wrn);
   validateFold(a8, names, wrn);
   validateLayers(a8, inputs, err, wrn);
   validatePlayback(a8, err, wrn);
@@ -1511,7 +1511,7 @@ function validateOps(a8, err, wrn, inf) {
 
 // §6.8 — PARSE-AND-IGNORE + VALIDATE: `hooks` ⊆ the four names, `starters` ⊆ the
 // Appendix A raymarch roster.
-function validateRaymarchOps(a8, err) {
+function validateRaymarchOps(a8, err, wrn) {
   const b = a8.raymarchOps;
   if (!b) return;
   if (b.base !== undefined && (typeof b.base !== 'string' || !b.base)) {
@@ -1530,12 +1530,15 @@ function validateRaymarchOps(a8, err) {
     }
   }
   if (b.starters !== undefined) {
+    // §6.8 ruling (2026-09-19, queue item 4c): `starters` is presentation-only
+    // (standard §6.8 field table: "presentation only") — a malformed `starters`
+    // is a WARNING, never an error.
     if (!Array.isArray(b.starters)) {
-      err('V7', 'raymarch-starters-not-array', 'A8_RAYMARCH_OPS.starters must be an array (standard §6.8).');
+      wrn('V7', 'raymarch-starters-not-array', 'A8_RAYMARCH_OPS.starters must be an array (standard §6.8).');
     } else {
       b.starters.forEach((op) => {
         if (OPS_RAYMARCH.indexOf(op) === -1) {
-          err('V7', 'raymarch-unknown-starter', 'A8_RAYMARCH_OPS.starters carries "' + op
+          wrn('V7', 'raymarch-unknown-starter', 'A8_RAYMARCH_OPS.starters carries "' + op
             + '", which is not in the Appendix A.2 raymarch roster (standard §6.8).', String(op));
         }
       });

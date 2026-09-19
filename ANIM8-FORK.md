@@ -448,6 +448,8 @@ conforms to them.** Otherwise the producer conforms to a draft.
   spelling, zero errors), `red-preset-unknown-param.fs`, `red-bind-out-of-range.fs`,
   `red-clock-position.fs`, `warn-unknown-a8-key.fs`.
 
+Rulings folded 2026-09-19: 1 keep · 2 parse+validate · 3 keep error · 4 warning.
+
 ## Build
 
 Source is ES modules in `src/`; bundle is webpack (`webpack.config.js` →

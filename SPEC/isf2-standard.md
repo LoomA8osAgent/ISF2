@@ -652,7 +652,10 @@ by the one resolver at `app/js/card.js:2802`) and publishes the slot schema
 normative because a host will otherwise invent them:
 
 - **`opacity` is the per-channel `[r,g,b,a]` vector, with `a` derived as `max(r,g,b)`**
-  (`app/js/card.js:5421`). Never a scalar.
+  (`app/js/card.js:5421`). Never a scalar — **RULED 2026-09-19 (queue-clarification):** this
+  stays an ERROR (normative, not advisory); §11.1 step (v) re-grades it to a warning ONLY if
+  the corpus is measured, at that step, to carry scalar `opacity` in the wild — no re-grade
+  without that measurement.
 - **`ranges` are BRACKETS, not `MIN`/`MAX`.** `MIN`/`MAX` (§5) are the declared domain; a
   bracket is the performer's operating window inside it, user-dragged, and it is the span a
   bound modulator sweeps (`app/js/card.js:1793` — the `sx-bounds-edited` commit into
@@ -824,8 +827,13 @@ Source of truth for the `world` scope: `app/js/formats/_ops-canon.js:453`
 (`OPS`, 5 entries). See **Appendix A** below.
 
 - **Conformance:** **Level 3** (§6.18).
-- **Reference renderer:** IMPLEMENT — it owns the injection seam, so it is the only component
-  that can splice the prelude. Roster ops it does not implement are ignored (identity).
+- **Reference renderer: PARSE + VALIDATE — RULED 2026-09-19 (queue-clarification, §6.7/§6.11).**
+  Appendix A publishes the op names, the coordinate space each scope injects into, and the
+  composition order — but no GLSL. An oracle that must invent the injected math from a name
+  list is not one; "IMPLEMENT" overstated what is published today. The reference renderer
+  validates every name against Appendix A and reports unknown names (identity degradation);
+  it does not yet splice the prelude. §11.1 step (vi) is the named future step that closes this
+  — publish the injected GLSL, then implement against it.
 - **Producer:** MUST emit when any op is active. (`A8GLSLEmit` already does —
   `app/js/formats/_glsl-emit.js:271` — which is the §6.2 annotation's point.)
 - **PORTABLE** for the published roster; unknown names degrade cleanly.
@@ -848,7 +856,7 @@ MARKERS, so a host may splice shading operators into them.
 |---|---|
 | `base` | Uniform-name prefix for spliced ops: `<base>_<opKey>` and `<base>_<opKey>_<arg>` |
 | `hooks` | Which of `normal` / `occ` / `shade` / `post` splice points the body marks |
-| `starters` | Ops the author intends offered first; presentation only |
+| `starters` | Ops the author intends offered first; presentation only. **RULED 2026-09-19: because this field is presentation-only, a malformed `starters` (not an array, or an entry outside the Appendix A.2 roster) VALIDATES as a WARNING, never an error** — unlike `hooks`, which is structural |
 | `renderScale` | OPTIONAL per-shader override of the host's `'auto'` render scale (`app/js/formats/isf.js:1971`). A hero look that must load crisp declares `1.0` |
 
 The block is read at `loadSource` (`app/js/formats/isf.js:847`) and the op roster it draws on
@@ -964,7 +972,11 @@ means. Source of truth: `app/js/formats/_camera-canon.js:129`. The §6.2.2 reser
 - **Conformance:** Level 1 parse; **Level 2** honours `mode` (already); **Level 3** honours
   `state`. A host without a camera ignores `state` and renders at the shader's own defaults —
   which is the existing §6.2.2 contract, unchanged.
-- **Reference renderer:** IMPLEMENT — it owns the injection seam.
+- **Reference renderer: PARSE + VALIDATE — RULED 2026-09-19 (queue-clarification, §6.7/§6.11).**
+  Appendix B publishes every `iCam*` domain name but no transform — the same gap as §6.7: a
+  renderer that invents the `mode`/`model`/`state` → uniform conversion from a roster of names
+  is not an oracle for it. The reference renderer validates `state` keys against Appendix B and
+  the `mode`/`model` enums; it does not yet own the injection seam. §11.1 step (vi) closes this.
 - **Producer:** MUST emit for any file whose body carries the `a8CameraRay` marker.
   `A8GLSLEmit` already emits a `state`-shaped block; conforming means adding `mode` and
   lifting `iCamModel` out of the state map into `model`.
@@ -1141,7 +1153,11 @@ full §6.6 receiver; `_bind` is shorthand for the bracket case only.
 
 - **Conformance:** Level 1 parses + preserves; **Level 4** (§6.18) honours it, identically to
   the receiver it desugars to. Producers MAY emit either spelling; `A8_MODULATION` wins where
-  both name the same input.
+  both name the same input. **RULED 2026-09-19 (queue-clarification):** a bracket-only `_bind`
+  still demands Level 4, never a lesser rung — the file is asking for a host that RUNS
+  modulation, and the bracket-vs-affine-remap distinction two paragraphs below is a shorthand
+  question, not a conformance question. A producer that wants Level 3 conformance emits no
+  `_bind` at all.
 - **Validation:** V11 (§9.3) — `_bind.min/max` MUST lie inside the input's declared
   `[MIN, MAX]`. A bracket outside its domain binds to nothing.
 
@@ -1828,6 +1844,7 @@ to a draft rather than to a schema that has been proven to accept it. Order:
 | (iii) | **THE MOVE** — steps 1–5 above | **DONE** |
 | (iv) | Reference renderer parses the new blocks: `ISF2.parse` model fields · `ISF2.validate` rules · `ISF2.emit` round trip with E2 byte-stability re-proven over the corpus · `ISF2.applyPreset` · `ISF2.sourceId` · the §6.11 camera reconciliation | **NEXT** |
 | (v) | A8os producer conforms: `_glsl-emit.js` DECLARE emits `A8VSN`, the reconciled `A8_CAMERA`, `A8_OPS`, `A8_PRESETS`; `card.js` / `isf.js` read the neutral keys with the grandfathered synonyms; corpus rebake ONLY where a header actually changes (N5/N6 — a file the emitter did not otherwise edit round-trips byte-exact) | after (iv) |
+| (vi) | Publish the injected GLSL for Appendix A (`A8_OPS`) and Appendix B (`A8_CAMERA`) — the prelude each op name and each `iCam*` name actually splices — so a third party can implement §6.7/§6.11 instead of trusting the reference renderer's word for the math; the reference renderer then implements them against that publication (§6.7/§6.11 ruling 2026-09-19: today it PARSES + VALIDATES the rosters, not implements the injection) | after (v), no date promised |
 
 **One trap, named because it is load-bearing:** a rebake rewrites `.fs` files on disk but does
 NOT reach saved library entries, which EMBED their source verbatim
