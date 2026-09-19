@@ -542,3 +542,56 @@ test('ISF2 §6.18: Level 1 preserves every block it does not honour', function (
   });
   t.end();
 });
+
+// ---------------------------------------------------------------------------
+// Koine — the published conformant portrait (loom-gallery), as a real-world
+// fixture: no gates, no fabricated field, every fact measured from the file.
+// ---------------------------------------------------------------------------
+
+test('ISF2: Koine (the conformant portrait) parses at level 4 with 0 errors', function (t) {
+  var src = assetLoad('koine.fs');
+  var m = ISF2.parse(src);
+  var v = ISF2.validate(m);
+
+  t.equal(v.errors.length, 0, 'zero errors');
+  t.equal(v.level, 4, 'A8_MODULATION-shaped _bind receivers demand Level 4 (§6.18)');
+
+  t.equal(v.warnings.length, 19, '18 undescribed inputs + the missing LONG_DESCRIPTION');
+  var v12 = v.warnings.filter(function (w) { return w.rule === 'V12'; });
+  t.equal(v12.length, 19, 'every warning is V12 — nothing else is wrong with this file');
+  t.equal(v.warnings.filter(function (w) { return w.code === 'no-long-description'; }).length, 1,
+    'the one top-level warning');
+  t.equal(v.warnings.filter(function (w) { return w.code === 'input-no-description'; }).length, 18,
+    'one per input — 10 `koine` group + 4 `base:transform` + 4 `base:color`');
+
+  t.end();
+});
+
+test('ISF2: Koine — four _bind blocks desugar to kind: lfo receivers', function (t) {
+  var m = ISF2.parse(assetLoad('koine.fs'));
+  var bound = m.a8.receivers.filter(function (r) { return r.from === '_bind'; });
+  t.equal(bound.length, 4, 'weave, dialect, grate, harmonic each carry _bind');
+  t.deepEqual(bound.map(function (r) { return r.target; }).sort(),
+    ['dialect', 'grate', 'harmonic', 'weave'], 'targets named');
+  bound.forEach(function (r) {
+    t.equal(r.source.kind, 'lfo', r.target + ': kind recovered from the lf: id namespace');
+  });
+  t.end();
+});
+
+test('ISF2: Koine — the 9-slot legacy A8_CARD_PRESETS bank reads with 0 V10 errors', function (t) {
+  var m = ISF2.parse(assetLoad('koine.fs'));
+  var v = ISF2.validate(m);
+  t.equal(m.a8.presets.legacy, true, 'A8_CARD_PRESETS — the grandfathered spelling');
+  t.deepEqual(Object.keys(m.a8.presets.bank).sort(),
+    ['1', '2', '3', '4', '5', '6', '7', '8', 'D'], 'D plus eight user slots');
+  t.equal(v.errors.filter(function (e) { return e.rule === 'V10'; }).length, 0,
+    'every params key in every slot names a declared input');
+  t.end();
+});
+
+test('ISF2: Koine round-trips byte-for-byte (E2)', function (t) {
+  var src = assetLoad('koine.fs');
+  t.equal(ISF2.emit(ISF2.parse(src)), src, 'emit(parse(x)) === x on a real published file, not a fixture');
+  t.end();
+});

@@ -453,7 +453,7 @@ An append-only history of the file's origin and transformations:
   "version": "1.0",
   "origin": { "source": "user", "author": "…", "license": "MIT", "url": "…" },
   "chain": [
-    { "action": "create", "timestamp": 1775067260192, "by": "…", "contentHash": "…" }
+    { "action": "create", "timestamp": "2026-09-19T09:14:20.192Z", "by": "…", "contentHash": "…" }
   ]
 }
 ```
@@ -462,7 +462,7 @@ An append-only history of the file's origin and transformations:
 |-------|-----------|
 | `version` | Provenance-schema version, currently `"1.0"` |
 | `origin` | Where the content came from: `source`, `author`, `license` (SPDX identifier where possible), optional `url`; optional generation `seed`/`params` for generated content |
-| `chain` | Append-only array of events. Every entry carries `action`, `timestamp` (ms epoch), `by`, and `contentHash` |
+| `chain` | Append-only array of events. Every entry carries `action`, `timestamp` (ISO-8601 string), `by`, and `contentHash` |
 
 Normative rules:
 
@@ -475,14 +475,9 @@ Normative rules:
   aggregating multiple ISF2 files SHOULD surface the most restrictive license in
   the set.
 
-> ⚠ **FALSE AGAINST SHIPPED CODE — annotated 2026-09-19, not rewritten.** Three details of
-> the table + example above do not describe what A8os writes, and one of them would make a
-> conforming V5 validator reject every chain the app produces:
-> - **`timestamp` is an ISO-8601 STRING, not a ms-epoch number.** `prvAppend` writes
->   `new Date().toISOString()` (`app/js/provenance.js:35`); the table's "(ms epoch)" and the
->   §12 example's `1775067260192` describe a shape nothing emits. V5 (§9.3) checks only that
->   the field is present, so it does not currently fail — but any validator tightening it to
->   a number would REJECT the whole A8os output.
+> ⚠ **FALSE AGAINST SHIPPED CODE — annotated 2026-09-19, corrected 2026-09-19 step (iv).**
+> Two details of the table + example above do not describe what A8os writes; neither breaks a
+> conforming V5 validator:
 > - **`origin` carries six fields this table omits** — `url`, `authorUrl`, `grabbed`,
 >   `grabbedBy`, `contentHash` alongside `source`/`author`/`license`
 >   (`prvCreateOrigin`, `app/js/provenance.js:10-19`).
@@ -682,6 +677,12 @@ and the slot never recalls — the lesson recorded as `BOUND-D-RESET-CLAMPED-BY-
 
 - **Conformance:** Level 1 parses + preserves; **Level 3** (§6.18) applies a slot. `D` is the
   reset baseline, `1`–`11` are user slots, an absent slot is absent (never `null`-padded).
+- **Slots are addressed by id, never by position.** `bank` is a JSON object; a host that
+  enumerates it with `Object.keys()` gets integer-like keys FIRST regardless of insertion
+  order (the JS spec's own key-ordering rule — `"1"` sorts before `"D"` in every engine),
+  which is not declaration order and is not a host bug. A conforming host that renders a bank
+  deliberately sorts its own listing (`D` first, then numeric slots ascending); it resolves a
+  recall by the slot's own key, never by `bank`'s enumeration order (2026-09-19 step (iv)).
 - **Reference renderer:** PARSE + VALIDATE (every `params` / `ranges` / `inverts` key names a
   declared input). Applying is a host act, but the module SHOULD expose
   `ISF2.applyPreset(model, slotId)` → a flat `{name: value}` map so hosts do not each
@@ -764,6 +765,13 @@ carries), producers MUST emit `A8_MODULATION` instead. An `A8_ANIMATE` entry is 
 `{target: input, oscillator: {curve, rate, depth, phase, bipolar, base: baseValue}, active: true}`.
 Where both name the same input, `A8_MODULATION` wins. **This deprecation is why these
 additions force `A8VSN 2` rather than `1.x` (§10).**
+
+**Full precedence — 2026-09-19 step (iv), where more than one names the same input:**
+`A8_MODULATION` > `_bind` > `A8_ANIMATE` — the live gated spelling always outranks the
+deprecated one, and the desugar sits between them because it is a shorthand FOR the live
+shape. The reference resolver builds the receiver list in exactly this order, first-target-wins
+(`resolveReceivers`, `src/ISF2.js:792-855`, `put()` no-ops on a target already claimed,
+`:795-800`).
 
 - **Conformance:** **Level 4** (§6.18).
 - **Reference renderer:** PARSE-AND-IGNORE + VALIDATE (`target` names a declared input;
@@ -1283,6 +1291,13 @@ Every other `A8_`-prefixed top-level name stays reserved; producers MUST NOT use
 privately. That rule is unchanged — what changes is that it is now TRUE of the shipped
 producer, which it was not.
 
+**Grade — 2026-09-19 step (iv).** A producer emitting an undefined `A8_*` key is a
+**producer conformance violation** (MUST NOT, this section); a consumer that encounters one
+anyway MUST NOT fail the file over it — per §10's forward-compatibility rule it is a
+**WARNING**, tolerated and preserved on re-emit like any other unknown key (`a8-unknown-key`,
+`src/ISF2.js:556-558`; the parallel `a8-reserved-key` warning for a name reserved-but-undefined
+sits at `:549-553`). §9.3 V-series applies the same grade to `warn-unknown-a8-key.fs`.
+
 ### 6.18 Conformance classes — two new rungs — RATIFIED 2026-09-19
 
 §9.1's ladder stops at "grouping, gating, warp-op activation, `A8_ANIMATE`, camera hook". The
@@ -1639,7 +1654,10 @@ gate that agree by construction cannot drift the way two disciplined-but-separat
 - **V11.** `_bind.min/max` (§6.14 D) lies inside the input's declared `[MIN, MAX]`. A bracket
   outside its own domain binds to nothing. ERROR.
 - **V12.** Per-input `DESCRIPTION` present on every declarable input, and top-level
-  `LONG_DESCRIPTION` present. §5.2 mandates both already; §9.3 never checked either. Cheapest
+  `LONG_DESCRIPTION` present. **"Declarable" reads as AUTHORED** — an input carrying a §6.14 C
+  host-minted marker (`_engineOnly` / `_a8DebugTap` / `_a8Synthetic`) was stamped by the engine
+  at runtime, so no author could have described it, and V12 does not check it (`src/ISF2.js:1707`).
+  §5.2 mandates both already; §9.3 never checked either. Cheapest
   check in the set (pure header parse) and the highest-leverage, because it is simultaneously
   the composability gate of `specs/ai/decision-models.md` §P2.4. **WARNING at Level 1** — a
   legacy ISF file legitimately carries neither, and a conformance validator must not reject one
@@ -1848,7 +1866,7 @@ controls, an authored oscillator, and a provenance block:
     "version": "1.0",
     "origin": { "source": "user", "author": "Example Author", "license": "MIT" },
     "chain": [
-      { "action": "create", "timestamp": 1775067260192,
+      { "action": "create", "timestamp": "2026-09-19T09:14:20.192Z",
         "by": "Example Author", "contentHash": "9f2c…" }
     ]
   }

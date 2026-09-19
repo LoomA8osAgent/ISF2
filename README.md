@@ -125,6 +125,10 @@ consumer that re-emits a file it did not edit never silently rewrites it. Pass
 derived VIEW; writing it alone is lost). `ISF2.appendProvenanceEvent(model, event)` appends to
 the chain and never rewrites an existing event.
 
+A conformant, real-world A8VSN 2 file: `tests/assets/koine.fs` (Level 4, four `_bind`
+receivers, a 9-slot legacy `A8_CARD_PRESETS` bank) — the published portrait it is copied from,
+byte-for-byte.
+
 ## Raw ISF Parsing
 
 Use the ISFParser class to parse ISF Fragment and Vertex shaders to GLSL shaders and an input data-mapping.
